@@ -6,7 +6,7 @@ defmodule AshEventLog.Resource.Transformers.AddEventChange do
 
   def transform(dsl_state) do
     event_log = Transformer.get_option(dsl_state, [:event_log], :event_log)
-    ignore_actions = Transformer.get_option(dsl_state, [:event_log], :ignore_actions) || []
+    ignore_actions = Transformer.get_option(dsl_state, [:event_log], :ignore_actions)
 
     case Transformer.build_entity(Ash.Resource.Dsl, [:changes], :change,
            change:

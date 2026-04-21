@@ -3,18 +3,22 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
   use Ash.Resource.Change
 
   @impl true
-  def init(opts) do
-    {:ok, opts}
-  end
+  def init(opts), do: {:ok, opts}
 
   @impl true
   def change(changeset, opts, context) do
-    if ignore?(changeset, opts) do
+    if changeset.action.name in opts[:ignore_actions] do
       changeset
     else
+      event_log = opts[:event_log]
+
       Ash.Changeset.after_action(changeset, fn changeset, result ->
-        create_event!(changeset, opts, context)
-        {:ok, result}
+        params = build_event_params(changeset, result, event_log, context)
+
+        case create_event(event_log, params) do
+          {:ok, _event} -> {:ok, result}
+          {:error, error} -> {:error, error}
+        end
       end)
     end
   end
@@ -27,15 +31,16 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
 
   @impl true
   def after_batch(changesets_and_results, opts, context) do
+    event_log = opts[:event_log]
+    ignore_actions = opts[:ignore_actions]
+
     events =
       changesets_and_results
-      |> Enum.reject(fn {cs, _} -> ignore?(cs, opts) end)
-      |> Enum.map(fn {cs, _} -> build_event_params(cs, opts, context) end)
+      |> Enum.reject(fn {cs, _} -> cs.action.name in ignore_actions end)
+      |> Enum.map(fn {cs, result} -> build_event_params(cs, result, event_log, context) end)
 
     if events != [] do
-      event_log = opts[:event_log]
-
-      Ash.bulk_create!(events, event_log, :create,
+      Ash.bulk_create(events, event_log, :create,
         authorize?: false,
         return_errors?: true,
         stop_on_error?: true
@@ -45,24 +50,17 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     Enum.map(changesets_and_results, fn {_, result} -> {:ok, result} end)
   end
 
-  defp ignore?(changeset, opts) do
-    changeset.action.name in (opts[:ignore_actions] || [])
-  end
-
-  defp create_event!(changeset, opts, context) do
-    event_log = opts[:event_log]
-    params = build_event_params(changeset, opts, context)
-
+  defp create_event(event_log, params) do
     event_log
     |> Ash.Changeset.for_create(:create, params, authorize?: false)
-    |> Ash.create!(authorize?: false)
+    |> Ash.create(authorize?: false)
   end
 
-  defp build_event_params(changeset, opts, context) do
-    actor_params = build_actor_params(changeset, opts, context)
+  defp build_event_params(changeset, result, event_log, context) do
+    actor_params = build_actor_params(event_log, Map.get(context, :actor))
 
     %{
-      record_id: get_record_id(changeset),
+      record_id: get_record_id(changeset, result),
       resource: to_string(changeset.resource),
       action: to_string(changeset.action.name),
       action_type: to_string(changeset.action_type),
@@ -73,41 +71,35 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     |> Map.merge(actor_params)
   end
 
-  defp build_actor_params(_changeset, opts, context) do
-    event_log = opts[:event_log]
-    actor = Map.get(context, :actor)
+  defp build_actor_params(_event_log, actor) when not is_struct(actor), do: %{}
 
-    if is_struct(actor) do
-      actor_configs = AshEventLog.EventLog.Info.persist_actor_primary_keys(event_log)
-
-      Enum.reduce(actor_configs, %{}, fn config, acc ->
-        if actor.__struct__ == config.destination do
-          pk_field = hd(Ash.Resource.Info.primary_key(actor.__struct__))
-          Map.put(acc, config.name, Map.get(actor, pk_field))
-        else
-          acc
-        end
-      end)
-    else
-      %{}
-    end
+  defp build_actor_params(event_log, actor) do
+    event_log
+    |> AshEventLog.EventLog.Info.persist_actor_primary_keys()
+    |> Enum.reduce(%{}, fn config, acc ->
+      if actor.__struct__ == config.destination do
+        pk_field = hd(Ash.Resource.Info.primary_key(actor.__struct__))
+        Map.put(acc, config.name, Map.get(actor, pk_field))
+      else
+        acc
+      end
+    end)
   end
 
-  defp get_record_id(changeset) do
+  defp get_record_id(changeset, result) do
     [pk] = Ash.Resource.Info.primary_key(changeset.resource)
 
     id =
       case changeset.action_type do
-        :create -> Map.get(changeset.attributes, pk)
+        :create -> Map.get(result, pk)
         _ -> Map.get(changeset.data, pk)
       end
 
-    if id, do: to_string(id), else: nil
+    if id, do: to_string(id)
   end
 
   defp extract_params(changeset) do
-    changeset.params
-    |> Enum.reduce(%{}, fn {key, value}, acc ->
+    Enum.reduce(changeset.params, %{}, fn {key, value}, acc ->
       key_atom = to_existing_atom(key)
 
       if key_atom do
