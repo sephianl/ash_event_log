@@ -10,31 +10,32 @@ defmodule AshEventLog.EventLog.Transformers.SetupEventLog do
     public_fields = Transformer.get_option(dsl_state, [:event_log], :public_fields)
     actor_keys = Transformer.get_entities(dsl_state, [:event_log])
 
-    dsl_state
-    |> add_primary_key(pk_type, public_fields)
-    |> add_attributes(record_id_type, public_fields)
-    |> add_actor_attributes(actor_keys, public_fields)
-    |> add_actions(actor_keys)
+    with {:ok, dsl_state} <- add_primary_key(dsl_state, pk_type, public_fields),
+         {:ok, dsl_state} <- add_attributes(dsl_state, record_id_type, public_fields),
+         {:ok, dsl_state} <- add_actor_attributes(dsl_state, actor_keys, public_fields),
+         {:ok, dsl_state} <- add_actions(dsl_state, actor_keys) do
+      {:ok, dsl_state}
+    end
   end
 
   defp add_primary_key(dsl_state, pk_type, public_fields) do
     {type, default} = primary_key_config(pk_type)
 
-    {:ok, attr} =
-      Transformer.build_entity(Ash.Resource.Dsl, [:attributes], :attribute,
-        name: :id,
-        type: type,
-        allow_nil?: false,
-        primary_key?: true,
-        writable?: false,
-        default: default,
-        public?: public?(:id, public_fields)
-      )
-
-    {:ok, Transformer.add_entity(dsl_state, [:attributes], attr)}
+    with {:ok, attr} <-
+           Transformer.build_entity(Ash.Resource.Dsl, [:attributes], :attribute,
+             name: :id,
+             type: type,
+             allow_nil?: false,
+             primary_key?: true,
+             writable?: false,
+             default: default,
+             public?: public?(:id, public_fields)
+           ) do
+      {:ok, Transformer.add_entity(dsl_state, [:attributes], attr)}
+    end
   end
 
-  defp add_attributes({:ok, dsl_state}, record_id_type, public_fields) do
+  defp add_attributes(dsl_state, record_id_type, public_fields) do
     attrs = [
       {:record_id, record_id_type, false, nil},
       {:resource, :string, false, nil},
@@ -45,7 +46,8 @@ defmodule AshEventLog.EventLog.Transformers.SetupEventLog do
       {:occurred_at, :utc_datetime_usec, false, nil}
     ]
 
-    Enum.reduce(attrs, {:ok, dsl_state}, fn {name, type, allow_nil?, default}, {:ok, state} ->
+    Enum.reduce_while(attrs, {:ok, dsl_state}, fn {name, type, allow_nil?, default},
+                                                  {:ok, state} ->
       opts =
         [
           name: name,
@@ -55,49 +57,50 @@ defmodule AshEventLog.EventLog.Transformers.SetupEventLog do
         ]
         |> maybe_add_default(default)
 
-      {:ok, attr} = Transformer.build_entity(Ash.Resource.Dsl, [:attributes], :attribute, opts)
-      {:ok, Transformer.add_entity(state, [:attributes], attr)}
+      case Transformer.build_entity(Ash.Resource.Dsl, [:attributes], :attribute, opts) do
+        {:ok, attr} -> {:cont, {:ok, Transformer.add_entity(state, [:attributes], attr)}}
+        {:error, _} = error -> {:halt, error}
+      end
     end)
   end
 
-  defp add_actor_attributes({:ok, dsl_state}, actor_keys, public_fields) do
-    Enum.reduce(actor_keys, {:ok, dsl_state}, fn actor_key, {:ok, state} ->
-      {:ok, attr} =
-        Transformer.build_entity(Ash.Resource.Dsl, [:attributes], :attribute,
-          name: actor_key.name,
-          type: actor_key.attribute_type,
-          allow_nil?: actor_key.allow_nil?,
-          public?: public?(actor_key.name, public_fields)
-        )
-
-      {:ok, Transformer.add_entity(state, [:attributes], attr)}
+  defp add_actor_attributes(dsl_state, actor_keys, public_fields) do
+    Enum.reduce_while(actor_keys, {:ok, dsl_state}, fn actor_key, {:ok, state} ->
+      case Transformer.build_entity(Ash.Resource.Dsl, [:attributes], :attribute,
+             name: actor_key.name,
+             type: actor_key.attribute_type,
+             allow_nil?: actor_key.allow_nil?,
+             public?: public?(actor_key.name, public_fields)
+           ) do
+        {:ok, attr} -> {:cont, {:ok, Transformer.add_entity(state, [:attributes], attr)}}
+        {:error, _} = error -> {:halt, error}
+      end
     end)
   end
 
-  defp add_actions({:ok, dsl_state}, actor_keys) do
+  defp add_actions(dsl_state, actor_keys) do
     accept_fields =
       [:record_id, :resource, :action, :action_type, :data, :metadata, :occurred_at] ++
         Enum.map(actor_keys, & &1.name)
 
-    {:ok, create_action} =
-      Transformer.build_entity(Ash.Resource.Dsl, [:actions], :create,
-        name: :create,
-        accept: accept_fields,
-        primary?: true
-      )
+    with {:ok, create_action} <-
+           Transformer.build_entity(Ash.Resource.Dsl, [:actions], :create,
+             name: :create,
+             accept: accept_fields,
+             primary?: true
+           ),
+         {:ok, read_action} <-
+           Transformer.build_entity(Ash.Resource.Dsl, [:actions], :read,
+             name: :read,
+             primary?: true
+           ) do
+      dsl_state =
+        dsl_state
+        |> Transformer.add_entity([:actions], create_action)
+        |> Transformer.add_entity([:actions], read_action)
 
-    {:ok, read_action} =
-      Transformer.build_entity(Ash.Resource.Dsl, [:actions], :read,
-        name: :read,
-        primary?: true
-      )
-
-    dsl_state =
-      dsl_state
-      |> Transformer.add_entity([:actions], create_action)
-      |> Transformer.add_entity([:actions], read_action)
-
-    {:ok, dsl_state}
+      {:ok, dsl_state}
+    end
   end
 
   defp primary_key_config(:uuid),

@@ -29,5 +29,6 @@ defmodule AshEventLog.Resource do
 
   use Spark.Dsl.Extension,
     sections: [@event_log],
-    transformers: [AshEventLog.Resource.Transformers.AddEventChange]
+    transformers: [AshEventLog.Resource.Transformers.AddEventChange],
+    verifiers: [AshEventLog.Resource.Verifiers.ValidateSinglePrimaryKey]
 end

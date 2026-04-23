@@ -59,6 +59,12 @@ defmodule AshEventLog.EventLog do
         type: {:or, [{:literal, :all}, {:list, :atom}]},
         default: [],
         doc: "Which fields to make public. `:all` or a list of field names."
+      ],
+      logger_metadata_keys: [
+        type: {:list, :atom},
+        default: [:request_id],
+        doc:
+          "Logger metadata keys to auto-capture into event metadata. Use `[:*]` to capture all."
       ]
     ]
   }
@@ -66,9 +72,4 @@ defmodule AshEventLog.EventLog do
   use Spark.Dsl.Extension,
     sections: [@event_log],
     transformers: [AshEventLog.EventLog.Transformers.SetupEventLog]
-end
-
-defmodule AshEventLog.EventLog.PersistActorPrimaryKey do
-  @moduledoc false
-  defstruct [:name, :destination, :__spark_metadata__, attribute_type: :uuid, allow_nil?: true]
 end

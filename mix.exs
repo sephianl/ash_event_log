@@ -11,7 +11,17 @@ defmodule AshEventLog.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
-      aliases: aliases()
+      aliases: aliases(),
+      description: "An Ash extension for automatic event logging and audit trails on resources.",
+      package: package(),
+      source_url: "https://github.com/sephianl/ash_event_log"
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/sephianl/ash_event_log"}
     ]
   end
 
@@ -30,7 +40,8 @@ defmodule AshEventLog.MixProject do
       {:ash_postgres, "~> 2.0"},
       {:spark, "~> 2.0"},
       {:postgrex, "~> 0.21"},
-      {:jason, "~> 1.0"}
+      {:jason, "~> 1.0"},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
 
