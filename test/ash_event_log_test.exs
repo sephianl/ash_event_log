@@ -426,6 +426,78 @@ defmodule AshEventLogTest do
     end
   end
 
+  describe "json safety" do
+    test "converts raw binary UUIDs in Logger metadata to strings" do
+      raw_uuid = <<1, 0, 5, 88, 192, 188, 64, 211, 161, 193, 16, 248, 166, 136, 238, 245>>
+      Logger.metadata(trace_id: raw_uuid)
+
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.metadata["trace_id"] == "01000558-c0bc-40d3-a1c1-10f8a688eef5"
+    after
+      Logger.metadata(trace_id: nil)
+    end
+
+    test "converts raw binary UUIDs in explicit metadata to strings" do
+      raw_uuid = <<1, 0, 5, 88, 192, 188, 64, 211, 161, 193, 16, 248, 166, 136, 238, 245>>
+
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.Changeset.set_context(%{
+        ash_event_log_metadata: %{parent_id: raw_uuid}
+      })
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.metadata["parent_id"] == "01000558-c0bc-40d3-a1c1-10f8a688eef5"
+    end
+
+    test "converts tuples in Logger metadata to lists" do
+      Logger.metadata(dimensions: {100, 200})
+
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.metadata["dimensions"] == [100, 200]
+    after
+      Logger.metadata(dimensions: nil)
+    end
+
+    test "converts pids in Logger metadata to strings" do
+      Logger.metadata(caller_pid: self())
+
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert is_binary(event.metadata["caller_pid"])
+      assert String.starts_with?(event.metadata["caller_pid"], "#PID<")
+    after
+      Logger.metadata(caller_pid: nil)
+    end
+
+    test "handles nested maps with binary UUIDs" do
+      raw_uuid = <<1, 0, 5, 88, 192, 188, 64, 211, 161, 193, 16, 248, 166, 136, 238, 245>>
+
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.Changeset.set_context(%{
+        ash_event_log_metadata: %{nested: %{id: raw_uuid, name: "test"}}
+      })
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.metadata["nested"]["id"] == "01000558-c0bc-40d3-a1c1-10f8a688eef5"
+      assert event.metadata["nested"]["name"] == "test"
+    end
+  end
+
   describe "composite primary key verifier" do
     test "rejects resources with composite primary keys" do
       assert {:error, error} =

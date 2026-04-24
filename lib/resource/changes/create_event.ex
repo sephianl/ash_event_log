@@ -128,7 +128,7 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
   defp build_metadata(changeset, event_log) do
     logger_meta = capture_logger_metadata(event_log)
     explicit_meta = Map.get(changeset.context, :ash_event_log_metadata, %{})
-    Map.merge(logger_meta, explicit_meta)
+    Map.merge(logger_meta, explicit_meta) |> json_safe()
   end
 
   defp capture_logger_metadata(event_log) do
@@ -217,7 +217,7 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
         end
       end)
 
-    attr_data |> Map.merge(atomic_data) |> Map.merge(arg_data)
+    attr_data |> Map.merge(atomic_data) |> Map.merge(arg_data) |> json_safe()
   end
 
   defp dump_value(value, %{type: type, constraints: constraints}) do
@@ -228,4 +228,29 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
   rescue
     _e in [ArgumentError, FunctionClauseError] -> value
   end
+
+  defp json_safe(value) when is_binary(value) do
+    if String.printable?(value) do
+      value
+    else
+      case Ecto.UUID.load(value) do
+        {:ok, uuid_string} -> uuid_string
+        :error -> inspect(value)
+      end
+    end
+  end
+
+  defp json_safe(value) when is_map(value) and not is_struct(value) do
+    Map.new(value, fn {k, v} -> {json_safe_key(k), json_safe(v)} end)
+  end
+
+  defp json_safe(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_safe()
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  defp json_safe(%_{} = value), do: json_safe(Map.from_struct(value))
+  defp json_safe(value) when is_pid(value) or is_reference(value), do: inspect(value)
+  defp json_safe(value), do: value
+
+  defp json_safe_key(key) when is_atom(key), do: key
+  defp json_safe_key(key) when is_binary(key), do: key
+  defp json_safe_key(key), do: to_string(key)
 end
