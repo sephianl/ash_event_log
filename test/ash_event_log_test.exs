@@ -498,6 +498,20 @@ defmodule AshEventLogTest do
     end
   end
 
+  describe "json_safe_key" do
+    test "handles tuple keys in data maps without crashing" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.Changeset.set_context(%{
+        ash_event_log_metadata: %{{:tuple_key, :example} => "value"}
+      })
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.metadata["{:tuple_key, :example}"] == "value"
+    end
+  end
+
   describe "composite primary key verifier" do
     test "rejects resources with composite primary keys" do
       assert {:error, error} =

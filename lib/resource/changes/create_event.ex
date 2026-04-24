@@ -252,5 +252,12 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
 
   defp json_safe_key(key) when is_atom(key), do: key
   defp json_safe_key(key) when is_binary(key), do: key
-  defp json_safe_key(key), do: to_string(key)
+
+  defp json_safe_key(key) do
+    if String.Chars.impl_for(key) do
+      to_string(key)
+    else
+      inspect(key)
+    end
+  end
 end
