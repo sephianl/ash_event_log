@@ -9,6 +9,15 @@ defmodule AshEventLog.Resource do
         event_log MyApp.Events.Event
         ignore_actions [:background_recalculate]
       end
+
+  Use `only_actions` to opt in to a specific allowlist instead:
+
+      event_log do
+        event_log MyApp.Events.Event
+        only_actions [:create, :update]
+      end
+
+  `ignore_actions` and `only_actions` are mutually exclusive.
   """
 
   @event_log %Spark.Dsl.Section{
@@ -22,7 +31,12 @@ defmodule AshEventLog.Resource do
       ignore_actions: [
         type: {:list, :atom},
         default: [],
-        doc: "Actions to exclude from event logging."
+        doc: "Actions to exclude from event logging. Mutually exclusive with `only_actions`."
+      ],
+      only_actions: [
+        type: {:list, :atom},
+        doc:
+          "If set, only these actions will be logged. Mutually exclusive with `ignore_actions`."
       ]
     ]
   }

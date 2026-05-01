@@ -6,7 +6,7 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
 
   @impl true
   def change(changeset, opts, context) do
-    if changeset.action.name in opts[:ignore_actions] do
+    if skip?(changeset.action.name, opts) do
       changeset
     else
       event_log = opts[:event_log]
@@ -21,7 +21,7 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
 
   @impl true
   def atomic(changeset, opts, context) do
-    if changeset.action.name in opts[:ignore_actions] do
+    if skip?(changeset.action.name, opts) do
       {:ok, changeset}
     else
       event_log = opts[:event_log]
@@ -41,16 +41,22 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
   @impl true
   def after_batch(changesets_and_results, opts, context) do
     event_log = opts[:event_log]
-    ignore_actions = opts[:ignore_actions]
 
     events =
       changesets_and_results
-      |> Enum.reject(fn {cs, _} -> cs.action.name in ignore_actions end)
+      |> Enum.reject(fn {cs, _} -> skip?(cs.action.name, opts) end)
       |> Enum.map(fn {cs, result} -> build_event_params(cs, result, event_log, context) end)
 
     if events != [], do: log_events_bulk(events, event_log)
 
     Enum.map(changesets_and_results, fn {_, result} -> {:ok, result} end)
+  end
+
+  defp skip?(action_name, opts) do
+    case opts[:only_actions] do
+      nil -> action_name in (opts[:ignore_actions] || [])
+      list -> action_name not in list
+    end
   end
 
   defp log_event(event_log, params) do

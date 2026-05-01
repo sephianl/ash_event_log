@@ -3,7 +3,16 @@ defmodule AshEventLogTest do
 
   require Logger
 
-  alias AshEventLog.Test.{CompositePkStub, Domain, Event, Post, Repo, TrackedWithIgnore, User}
+  alias AshEventLog.Test.{
+    CompositePkStub,
+    Domain,
+    Event,
+    Post,
+    Repo,
+    TrackedWithIgnore,
+    TrackedWithOnly,
+    User
+  }
 
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
@@ -269,6 +278,109 @@ defmodule AshEventLogTest do
 
       events = Ash.read!(Event, domain: Domain)
       assert Enum.all?(events, &(&1.action == "create"))
+    end
+  end
+
+  describe "only_actions" do
+    test "creates events only for listed actions (non-atomic)" do
+      item =
+        TrackedWithOnly
+        |> Ash.Changeset.for_create(:create, %{name: "Item"}, domain: Domain)
+        |> Ash.create!()
+
+      item
+      |> Ash.Changeset.for_update(:update, %{name: "Updated"}, domain: Domain)
+      |> Ash.update!()
+
+      item
+      |> Ash.Changeset.for_update(:background_update, %{name: "Background"}, domain: Domain)
+      |> Ash.update!()
+
+      events = Ash.read!(Event, domain: Domain)
+      actions = events |> Enum.map(& &1.action) |> Enum.sort()
+      assert actions == ["create"]
+    end
+
+    test "creates events only for listed actions (single-record atomic)" do
+      item =
+        TrackedWithOnly
+        |> Ash.Changeset.for_create(:create, %{name: "Item"}, domain: Domain)
+        |> Ash.create!()
+
+      item
+      |> Ash.Changeset.for_update(:update, %{name: "Updated"},
+        domain: Domain,
+        authorize?: false
+      )
+      |> Ash.update!()
+
+      events = Ash.read!(Event, domain: Domain)
+      assert length(events) == 1
+      assert hd(events).action == "create"
+    end
+
+    test "creates events only for listed actions in bulk (atomic)" do
+      inputs = [%{name: "A"}, %{name: "B"}]
+      Ash.bulk_create!(inputs, TrackedWithOnly, :create, domain: Domain)
+
+      items = Ash.read!(TrackedWithOnly, domain: Domain)
+
+      Ash.bulk_update!(items, :update, %{name: "Updated"},
+        domain: Domain,
+        strategy: :atomic,
+        return_errors?: true,
+        authorize?: false
+      )
+
+      events = Ash.read!(Event, domain: Domain)
+      assert Enum.all?(events, &(&1.action == "create"))
+      assert length(events) == 2
+    end
+
+    test "logs destroy events when listed" do
+      item =
+        TrackedWithOnly
+        |> Ash.Changeset.for_create(:create, %{name: "Item"}, domain: Domain)
+        |> Ash.create!()
+
+      item
+      |> Ash.Changeset.for_destroy(:destroy, %{}, domain: Domain)
+      |> Ash.destroy!()
+
+      events = Ash.read!(Event, domain: Domain)
+      actions = events |> Enum.map(& &1.action) |> Enum.sort()
+      assert actions == ["create", "destroy"]
+    end
+
+    test "rejects resources that set both ignore_actions and only_actions" do
+      assert_raise Spark.Error.DslError, ~r/mutually exclusive/, fn ->
+        defmodule InvalidConflict do
+          use Ash.Resource,
+            domain: AshEventLog.Test.Domain,
+            data_layer: AshPostgres.DataLayer,
+            extensions: [AshEventLog.Resource]
+
+          postgres do
+            table("invalid_conflict")
+            repo(AshEventLog.Test.Repo)
+          end
+
+          event_log do
+            event_log(AshEventLog.Test.Event)
+            ignore_actions([:update])
+            only_actions([:create])
+          end
+
+          actions do
+            defaults([:read, :destroy, create: [:name], update: [:name]])
+          end
+
+          attributes do
+            uuid_primary_key(:id)
+            attribute(:name, :string, allow_nil?: false, public?: true)
+          end
+        end
+      end
     end
   end
 
