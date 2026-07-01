@@ -21,6 +21,15 @@ defmodule AshEventLog.Test.Post do
       argument(:note, :string, allow_nil?: true)
       argument(:internal_ref, :string, sensitive?: true, allow_nil?: true)
     end
+
+    update :atomic_update do
+      accept([:title])
+      require_atomic?(true)
+    end
+
+    destroy :atomic_destroy do
+      require_atomic?(true)
+    end
   end
 
   attributes do

@@ -128,6 +128,44 @@ defmodule AshEventLogTest do
       assert update_event.data["title"] == "Atomic Updated"
     end
 
+    test "logs exactly one event per record for a bulk atomic update" do
+      posts =
+        Enum.map(1..3, fn i ->
+          Post
+          |> Ash.Changeset.for_create(:create, %{title: "Post #{i}"}, domain: Domain)
+          |> Ash.create!()
+        end)
+
+      Ash.bulk_update!(posts, :update, %{title: "Bulk Atomic"},
+        domain: Domain,
+        strategy: :atomic,
+        return_errors?: true,
+        authorize?: false
+      )
+
+      events = Ash.read!(Event, domain: Domain)
+      assert Enum.count(events, &(&1.action == "update")) == 3
+    end
+
+    test "logs exactly one event for a single-record atomic update" do
+      post =
+        Post
+        |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+        |> Ash.create!()
+
+      post
+      |> Ash.Changeset.for_update(:atomic_update, %{title: "Single Atomic"}, domain: Domain)
+      |> Ash.update!()
+
+      events = Ash.read!(Event, domain: Domain)
+      assert Enum.count(events, &(&1.action == "atomic_update")) == 1
+
+      update_event = Enum.find(events, &(&1.action == "atomic_update"))
+      assert update_event.record_id == to_string(post.id)
+      assert update_event.action_type == "update"
+      assert update_event.data["title"] == "Single Atomic"
+    end
+
     test "records only the changed attributes" do
       post =
         Post
@@ -189,6 +227,46 @@ defmodule AshEventLogTest do
       events = Ash.read!(Event, domain: Domain)
       destroy_event = Enum.find(events, &(&1.action == "destroy"))
       assert destroy_event != nil
+      assert destroy_event.record_id == to_string(post.id)
+      assert destroy_event.action_type == "destroy"
+    end
+
+    test "logs exactly one event per record for a bulk atomic destroy" do
+      posts =
+        Enum.map(1..3, fn i ->
+          Post
+          |> Ash.Changeset.for_create(:create, %{title: "Post #{i}"}, domain: Domain)
+          |> Ash.create!()
+        end)
+
+      Ash.bulk_destroy!(posts, :destroy, %{},
+        domain: Domain,
+        strategy: :atomic,
+        return_errors?: true,
+        authorize?: false
+      )
+
+      events = Ash.read!(Event, domain: Domain)
+      assert Enum.count(events, &(&1.action == "destroy")) == 3
+    end
+
+    test "logs exactly one event for a single-record atomic destroy" do
+      # Single-record atomic destroys never touch the batch machinery — they
+      # log via `change/3`'s `after_action`, not `after_batch`. This guards
+      # that path, which no bulk test exercises.
+      post =
+        Post
+        |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+        |> Ash.create!()
+
+      post
+      |> Ash.Changeset.for_destroy(:atomic_destroy, %{}, domain: Domain)
+      |> Ash.destroy!()
+
+      events = Ash.read!(Event, domain: Domain)
+      assert Enum.count(events, &(&1.action == "atomic_destroy")) == 1
+
+      destroy_event = Enum.find(events, &(&1.action == "atomic_destroy"))
       assert destroy_event.record_id == to_string(post.id)
       assert destroy_event.action_type == "destroy"
     end

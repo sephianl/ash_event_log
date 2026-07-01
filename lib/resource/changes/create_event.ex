@@ -20,19 +20,16 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
   end
 
   @impl true
-  def atomic(changeset, opts, context) do
-    if skip?(changeset.action.name, opts) do
-      {:ok, changeset}
-    else
-      event_log = opts[:event_log]
-
-      {:ok,
-       Ash.Changeset.after_action(changeset, fn changeset, result ->
-         params = build_event_params(changeset, result, event_log, context)
-         log_event(event_log, params)
-         {:ok, result}
-       end)}
-    end
+  def atomic(changeset, _opts, _context) do
+    # Declare the change atomic-safe without registering an after_action here.
+    # Each atomic path is already covered exactly once:
+    #   * Bulk atomic updates/destroys and single-record atomic *updates*
+    #     (which delegate to `Ash.Actions.Update.Bulk`) run `after_batch`.
+    #   * Single-record atomic *destroys* never touch the batch machinery; they
+    #     run `change/3`'s `after_action` via the normal destroy `with_hooks`.
+    # Registering an after_action here too would double-log on every path that
+    # already goes through `after_batch`.
+    {:ok, changeset}
   end
 
   @impl true
