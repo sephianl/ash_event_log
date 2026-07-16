@@ -10,11 +10,10 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
       changeset
     else
       event_log = opts[:event_log]
-      tenant = resolve_tenant(changeset, context)
 
       Ash.Changeset.after_action(changeset, fn changeset, result ->
         params = build_event_params(changeset, result, event_log, context)
-        log_event(event_log, params, tenant)
+        log_event(event_log, params, context)
         {:ok, result}
       end)
     end
@@ -39,14 +38,13 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
   @impl true
   def after_batch(changesets_and_results, opts, context) do
     event_log = opts[:event_log]
-    tenant = resolve_tenant_from_batch(changesets_and_results, context)
 
     events =
       changesets_and_results
       |> Enum.reject(fn {cs, _} -> skip?(cs.action.name, opts) end)
       |> Enum.map(fn {cs, result} -> build_event_params(cs, result, event_log, context) end)
 
-    if events != [], do: log_events_bulk(events, event_log, tenant)
+    if events != [], do: log_events_bulk(events, event_log, context)
 
     Enum.map(changesets_and_results, fn {_, result} -> {:ok, result} end)
   end
@@ -58,27 +56,10 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     end
   end
 
-  # The tracked action's tenant is not inherited by the fresh `for_create`
-  # changeset built for the event log resource below, so it must be
-  # captured here and threaded through explicitly. Without this, logging an
-  # event for a multitenant event log resource raises `TenantRequired`
-  # (swallowed and merely logged by the `rescue` below), silently dropping
-  # the event.
-  defp resolve_tenant(changeset, context) do
-    changeset.tenant || Map.get(context, :tenant)
-  end
-
-  defp resolve_tenant_from_batch(changesets_and_results, context) do
-    case changesets_and_results do
-      [{changeset, _} | _] -> resolve_tenant(changeset, context)
-      _ -> Map.get(context, :tenant)
-    end
-  end
-
-  defp log_event(event_log, params, tenant) do
+  defp log_event(event_log, params, context) do
     run_async(fn ->
       try do
-        case create_event(event_log, params, tenant) do
+        case create_event(event_log, params, context) do
           {:ok, _} ->
             :ok
 
@@ -92,13 +73,15 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     end)
   end
 
-  defp log_events_bulk(events, event_log, tenant) do
+  defp log_events_bulk(events, event_log, context) do
     run_async(fn ->
       try do
-        bulk_opts = [authorize?: false, return_errors?: true]
-        bulk_opts = if tenant, do: Keyword.put(bulk_opts, :tenant, tenant), else: bulk_opts
-
-        result = Ash.bulk_create(events, event_log, :create, bulk_opts)
+        result =
+          Ash.bulk_create(events, event_log, :create,
+            scope: context,
+            authorize?: false,
+            return_errors?: true
+          )
 
         if result.error_count > 0 do
           Logger.error(
@@ -123,11 +106,9 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     end
   end
 
-  defp create_event(event_log, params, tenant) do
-    opts = if tenant, do: [tenant: tenant], else: []
-
+  defp create_event(event_log, params, context) do
     event_log
-    |> Ash.Changeset.for_create(:create, params, opts)
+    |> Ash.Changeset.for_create(:create, params, scope: context, authorize?: false)
     |> Ash.create(authorize?: false)
   end
 
