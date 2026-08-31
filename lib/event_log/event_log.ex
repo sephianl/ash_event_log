@@ -17,6 +17,7 @@ defmodule AshEventLog.EventLog do
     name: :persist_actor_primary_key,
     args: [:name, :destination],
     target: AshEventLog.EventLog.PersistActorPrimaryKey,
+    no_depend_modules: [:destination],
     schema: [
       name: [
         type: :atom,

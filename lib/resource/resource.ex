@@ -22,6 +22,7 @@ defmodule AshEventLog.Resource do
 
   @event_log %Spark.Dsl.Section{
     name: :event_log,
+    no_depend_modules: [:event_log],
     schema: [
       event_log: [
         type: :atom,
