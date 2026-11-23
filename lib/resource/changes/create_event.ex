@@ -272,6 +272,10 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
 
   defp json_safe(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_safe()
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp json_safe(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp json_safe(%Date{} = value), do: Date.to_iso8601(value)
+  defp json_safe(%Time{} = value), do: Time.to_iso8601(value)
 
   defp json_safe(%module{} = value),
     do: json_safe_struct(value, Ash.Resource.Info.resource?(module))

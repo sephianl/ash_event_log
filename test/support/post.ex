@@ -22,6 +22,15 @@ defmodule AshEventLog.Test.Post do
       argument(:internal_ref, :string, sensitive?: true, allow_nil?: true)
     end
 
+    create :create_with_schedule do
+      accept([:title])
+      argument(:publish_at, :utc_datetime_usec, allow_nil?: true)
+      argument(:drafted_at, :naive_datetime, allow_nil?: true)
+      argument(:publish_on, :date, allow_nil?: true)
+      argument(:publish_time, :time, allow_nil?: true)
+      argument(:context, :map, allow_nil?: true)
+    end
+
     create :create_with_owner do
       accept([:title])
       argument(:owner, :struct, allow_nil?: true)

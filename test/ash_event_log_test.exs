@@ -491,6 +491,53 @@ defmodule AshEventLogTest do
     end
   end
 
+  describe "dates and times" do
+    test "are stored as ISO 8601 strings" do
+      Post
+      |> Ash.Changeset.for_create(
+        :create_with_schedule,
+        %{
+          title: "Hello",
+          publish_at: ~U[2026-11-23 10:15:30.123456Z],
+          drafted_at: ~N[2026-11-22 09:00:00],
+          publish_on: ~D[2026-11-23],
+          publish_time: ~T[10:15:30]
+        },
+        domain: Domain
+      )
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["publish_at"] == "2026-11-23T10:15:30.123456Z"
+      assert event.data["drafted_at"] == "2026-11-22T09:00:00"
+      assert event.data["publish_on"] == "2026-11-23"
+      assert event.data["publish_time"] == "10:15:30"
+    end
+
+    test "are stored as ISO 8601 strings when nested in a map" do
+      Post
+      |> Ash.Changeset.for_create(
+        :create_with_schedule,
+        %{title: "Hello", context: %{"window" => [~U[2026-11-23 10:00:00Z], ~D[2026-11-24]]}},
+        domain: Domain
+      )
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["context"]["window"] == ["2026-11-23T10:00:00Z", "2026-11-24"]
+    end
+
+    test "are stored as ISO 8601 strings in metadata" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.Changeset.set_context(%{ash_event_log_metadata: %{at: ~U[2026-11-23 10:00:00Z]}})
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.metadata["at"] == "2026-11-23T10:00:00Z"
+    end
+  end
+
   describe "record arguments" do
     setup do
       mentor = %Owner{id: Ash.UUID.generate(), name: "Mentor", hashed_password: "$2b$mentor"}
@@ -511,9 +558,13 @@ defmodule AshEventLogTest do
       create_with_owner!(%{owner: owner})
 
       [event] = Ash.read!(Event, domain: Domain)
-      assert Enum.sort(Map.keys(event.data["owner"])) == ["id", "joined_at", "mentor_id", "name"]
-      assert event.data["owner"]["id"] == owner.id
-      assert event.data["owner"]["mentor_id"] == owner.mentor_id
+
+      assert event.data["owner"] == %{
+               "id" => owner.id,
+               "name" => "Owner",
+               "joined_at" => "2026-11-23T10:00:00.000000Z",
+               "mentor_id" => owner.mentor_id
+             }
     end
 
     test "drop sensitive attributes when the argument names the resource", %{owner: owner} do

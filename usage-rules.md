@@ -131,8 +131,10 @@ post-action values), and action arguments.
 - **A record is stored as its non-sensitive attributes only**, wherever it appears: a
   `:struct` argument (with or without `instance_of`), a list of records, or a record nested
   in a map. Its relationships, calculations, aggregates and metadata never land in `data`.
-- Values are dumped with `Ash.Type.dump_to_embedded/3` and then made JSON-safe. Structs
-  become maps, tuples become lists, PIDs and references become strings.
+- Values are dumped with `Ash.Type.dump_to_embedded/3` and then made JSON-safe. Dates and
+  times (`DateTime`, `NaiveDateTime`, `Date`, `Time`) become ISO 8601 strings, other structs
+  become maps, tuples become lists, PIDs and references become strings. The same holds for
+  `metadata`.
 - `record_id` is always stored as a string.
 
 ### Attaching custom metadata
