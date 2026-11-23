@@ -22,6 +22,23 @@ defmodule AshEventLog.Test.Post do
       argument(:internal_ref, :string, sensitive?: true, allow_nil?: true)
     end
 
+    create :create_with_owner do
+      accept([:title])
+      argument(:owner, :struct, allow_nil?: true)
+
+      argument(:typed_owner, :struct,
+        constraints: [instance_of: AshEventLog.Test.Owner],
+        allow_nil?: true
+      )
+
+      argument(:owners, {:array, :struct},
+        constraints: [items: [instance_of: AshEventLog.Test.Owner]],
+        allow_nil?: true
+      )
+
+      argument(:context, :map, allow_nil?: true)
+    end
+
     update :atomic_update do
       accept([:title])
       require_atomic?(true)

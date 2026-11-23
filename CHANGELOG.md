@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.6
+
+A security fix. `sensitive?` was honoured on the logged resource's own attributes and
+arguments, but a record passed as an argument was stored whole, so its sensitive fields
+reached `data` anyway — an actor's password hash, an OAuth application's client secret.
+
+### Fixed
+
+- **Records in event data keep only their non-sensitive attributes.** A record passed as a
+  `:struct` argument, with or without `instance_of`, in a list, or nested in a map, is
+  stored as its attributes minus the `sensitive?` ones. Relationships, calculations,
+  aggregates and Ecto metadata are no longer stored either. Before, an unconstrained
+  `:struct` argument stored every field of the struct, and `instance_of` dumped every
+  attribute, sensitive ones included.
+
 ## 0.1.5
 
 Nothing here changes runtime behavior. The DSL's module-valued options stop creating compile-time

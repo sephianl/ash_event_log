@@ -128,6 +128,9 @@ on policies to filter what gets written; use `ignore_actions` / `only_actions` i
 post-action values), and action arguments.
 
 - **Anything marked `sensitive?` is excluded** — attributes and arguments both.
+- **A record is stored as its non-sensitive attributes only**, wherever it appears: a
+  `:struct` argument (with or without `instance_of`), a list of records, or a record nested
+  in a map. Its relationships, calculations, aggregates and metadata never land in `data`.
 - Values are dumped with `Ash.Type.dump_to_embedded/3` and then made JSON-safe. Structs
   become maps, tuples become lists, PIDs and references become strings.
 - `record_id` is always stored as a string.

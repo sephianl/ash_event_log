@@ -1,7 +1,7 @@
 defmodule AshEventLog.MixProject do
   use Mix.Project
 
-  @version "0.1.5"
+  @version "0.1.6"
   @github_url "https://github.com/sephianl/ash_event_log"
 
   def project do

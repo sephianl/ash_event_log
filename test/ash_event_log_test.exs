@@ -7,6 +7,7 @@ defmodule AshEventLogTest do
     CompositePkStub,
     Domain,
     Event,
+    Owner,
     Post,
     Repo,
     TrackedWithIgnore,
@@ -490,6 +491,56 @@ defmodule AshEventLogTest do
     end
   end
 
+  describe "record arguments" do
+    setup do
+      mentor = %Owner{id: Ash.UUID.generate(), name: "Mentor", hashed_password: "$2b$mentor"}
+
+      owner = %Owner{
+        id: Ash.UUID.generate(),
+        name: "Owner",
+        hashed_password: "$2b$owner",
+        joined_at: ~U[2026-11-23 10:00:00.000000Z],
+        mentor_id: mentor.id,
+        mentor: mentor
+      }
+
+      %{owner: owner}
+    end
+
+    test "keep only the record's non-sensitive attributes", %{owner: owner} do
+      create_with_owner!(%{owner: owner})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert Enum.sort(Map.keys(event.data["owner"])) == ["id", "joined_at", "mentor_id", "name"]
+      assert event.data["owner"]["id"] == owner.id
+      assert event.data["owner"]["mentor_id"] == owner.mentor_id
+    end
+
+    test "drop sensitive attributes when the argument names the resource", %{owner: owner} do
+      create_with_owner!(%{typed_owner: owner})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["typed_owner"]["name"] == "Owner"
+      refute Map.has_key?(event.data["typed_owner"], "hashed_password")
+    end
+
+    test "drop sensitive attributes from every record in a list", %{owner: owner} do
+      create_with_owner!(%{owners: [owner, owner.mentor]})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert Enum.map(event.data["owners"], & &1["name"]) == ["Owner", "Mentor"]
+      refute Enum.any?(event.data["owners"], &Map.has_key?(&1, "hashed_password"))
+    end
+
+    test "drop sensitive attributes from records nested in a map", %{owner: owner} do
+      create_with_owner!(%{context: %{"by" => owner}})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["context"]["by"]["name"] == "Owner"
+      refute Map.has_key?(event.data["context"]["by"], "hashed_password")
+    end
+  end
+
   describe "metadata" do
     test "stores metadata from changeset context" do
       Post
@@ -713,5 +764,13 @@ defmodule AshEventLogTest do
     test "accepts resources with single primary key" do
       assert :ok = AshEventLog.Resource.Verifiers.ValidateSinglePrimaryKey.verify(Post)
     end
+  end
+
+  defp create_with_owner!(arguments) do
+    Post
+    |> Ash.Changeset.for_create(:create_with_owner, Map.put(arguments, :title, "Hello"),
+      domain: Domain
+    )
+    |> Ash.create!()
   end
 end
