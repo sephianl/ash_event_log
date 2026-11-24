@@ -14,7 +14,12 @@ defmodule AshEventLog.Test.Post do
   end
 
   actions do
-    defaults([:read, :destroy, create: [:title, :body, :secret], update: [:title, :body]])
+    defaults([
+      :read,
+      :destroy,
+      create: [:title, :body, :secret, :published_at, :settings],
+      update: [:title, :body, :published_at]
+    ])
 
     create :create_with_note do
       accept([:title, :body])
@@ -63,5 +68,7 @@ defmodule AshEventLog.Test.Post do
     attribute(:title, :string, allow_nil?: false, public?: true)
     attribute(:body, :string, public?: true)
     attribute(:secret, :string, sensitive?: true, public?: true)
+    attribute(:published_at, :utc_datetime_usec, public?: true)
+    attribute(:settings, AshEventLog.Test.PostSettings, public?: true)
   end
 end

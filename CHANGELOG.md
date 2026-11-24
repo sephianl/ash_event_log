@@ -3,19 +3,21 @@
 ## 0.1.6
 
 A security fix, and dates that read as dates. `sensitive?` was honoured on the logged
-resource's own attributes and arguments, but a record passed as an argument was stored
-whole, so its sensitive fields reached `data` anyway — an actor's password hash, an OAuth
-application's client secret. Dates and times were stored as maps of their calendar fields;
-they are now ISO 8601 strings, which changes what consumers read back.
+resource's own attributes and arguments, but not inside the records they held: a record
+passed as an argument was stored whole, and an embedded attribute kept its sensitive
+fields, so they reached `data` anyway — an actor's password hash, an OAuth application's
+client secret. Dates and times were stored as maps of their calendar fields; they are now
+ISO 8601 strings, which changes what consumers read back.
 
 ### Fixed
 
 - **Records in event data keep only their non-sensitive attributes.** A record passed as a
-  `:struct` argument, with or without `instance_of`, in a list, or nested in a map, is
-  stored as its attributes minus the `sensitive?` ones. Relationships, calculations,
-  aggregates and Ecto metadata are no longer stored either. Before, an unconstrained
-  `:struct` argument stored every field of the struct, and `instance_of` dumped every
-  attribute, sensitive ones included.
+  `:struct` argument, with or without `instance_of`, in a list, or nested in a map, and the
+  value of an embedded attribute, are stored as their attributes minus the `sensitive?`
+  ones. Relationships, calculations, aggregates, Ecto metadata, and attributes that are not
+  loaded or are forbidden are no longer stored either. Before, an unconstrained `:struct`
+  argument stored every field of the struct, and `instance_of` and embedded attributes
+  dumped every attribute, sensitive ones included.
 
 ### Changed
 
