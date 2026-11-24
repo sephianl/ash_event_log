@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.1.6
+
+A security fix, and dates that read as dates. `sensitive?` was honoured on the logged
+resource's own attributes and arguments, but not inside the records they held: a record
+passed as an argument was stored whole, and an embedded attribute kept its sensitive
+fields, so they reached `data` anyway — an actor's password hash, an OAuth application's
+client secret. Dates and times were stored as maps of their calendar fields; they are now
+ISO 8601 strings, which changes what consumers read back.
+
+### Fixed
+
+- **Records in event data keep only their non-sensitive attributes.** A record passed as a
+  `:struct` argument, with or without `instance_of`, in a list, or nested in a map, and the
+  value of an embedded attribute, are stored as their attributes minus the `sensitive?`
+  ones. Relationships, calculations, aggregates, Ecto metadata, and attributes that are not
+  loaded or are forbidden are no longer stored either. Before, an unconstrained `:struct`
+  argument stored every field of the struct, and `instance_of` and embedded attributes
+  dumped every attribute, sensitive ones included.
+
+### Changed
+
+- **Dates and times are stored as ISO 8601 strings** in `data` and `metadata`: `DateTime`,
+  `NaiveDateTime`, `Date` and `Time`, at any depth. They used to become maps of their struct
+  fields (`"year"`, `"microsecond" => [0, 6]`, `"calendar"`, ...). Events written before
+  this release keep that shape, so code that reads dates out of `data` has to accept both.
+
 ## 0.1.5
 
 Nothing here changes runtime behavior. The DSL's module-valued options stop creating compile-time

@@ -3,6 +3,7 @@ defmodule AshEventLog.Test.Domain do
 
   resources do
     resource(AshEventLog.Test.Event)
+    resource(AshEventLog.Test.Owner)
     resource(AshEventLog.Test.Post)
     resource(AshEventLog.Test.TrackedWithIgnore)
     resource(AshEventLog.Test.TrackedWithOnly)

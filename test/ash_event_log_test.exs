@@ -7,6 +7,7 @@ defmodule AshEventLogTest do
     CompositePkStub,
     Domain,
     Event,
+    Owner,
     Post,
     Repo,
     TrackedWithIgnore,
@@ -490,6 +491,194 @@ defmodule AshEventLogTest do
     end
   end
 
+  describe "dates and times" do
+    test "are stored as ISO 8601 strings" do
+      Post
+      |> Ash.Changeset.for_create(
+        :create_with_schedule,
+        %{
+          title: "Hello",
+          publish_at: ~U[2026-11-23 10:15:30.123456Z],
+          drafted_at: ~N[2026-11-22 09:00:00],
+          publish_on: ~D[2026-11-23],
+          publish_time: ~T[10:15:30]
+        },
+        domain: Domain
+      )
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["publish_at"] == "2026-11-23T10:15:30.123456Z"
+      assert event.data["drafted_at"] == "2026-11-22T09:00:00"
+      assert event.data["publish_on"] == "2026-11-23"
+      assert event.data["publish_time"] == "10:15:30"
+    end
+
+    test "are stored as ISO 8601 strings when nested in a map" do
+      Post
+      |> Ash.Changeset.for_create(
+        :create_with_schedule,
+        %{title: "Hello", context: %{"window" => [~U[2026-11-23 10:00:00Z], ~D[2026-11-24]]}},
+        domain: Domain
+      )
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["context"]["window"] == ["2026-11-23T10:00:00Z", "2026-11-24"]
+    end
+
+    test "are stored as ISO 8601 strings in metadata" do
+      Post
+      |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+      |> Ash.Changeset.set_context(%{ash_event_log_metadata: %{at: ~U[2026-11-23 10:00:00Z]}})
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.metadata["at"] == "2026-11-23T10:00:00Z"
+    end
+
+    test "are stored as ISO 8601 strings when set as an attribute" do
+      Post
+      |> Ash.Changeset.for_create(
+        :create,
+        %{title: "Hello", published_at: ~U[2026-11-23 10:15:30.123456Z]},
+        domain: Domain
+      )
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["published_at"] == "2026-11-23T10:15:30.123456Z"
+    end
+
+    test "are stored as ISO 8601 strings when set by an atomic update" do
+      post =
+        Post
+        |> Ash.Changeset.for_create(:create, %{title: "Hello"}, domain: Domain)
+        |> Ash.create!()
+
+      Ash.bulk_update!([post], :update, %{published_at: ~U[2026-11-24 08:00:00.000000Z]},
+        domain: Domain,
+        strategy: :atomic,
+        return_errors?: true,
+        authorize?: false
+      )
+
+      update_event = Event |> Ash.read!(domain: Domain) |> Enum.find(&(&1.action == "update"))
+      assert update_event.data["published_at"] == "2026-11-24T08:00:00.000000Z"
+    end
+  end
+
+  describe "record arguments" do
+    setup do
+      mentor = %Owner{id: Ash.UUID.generate(), name: "Mentor", hashed_password: "$2b$mentor"}
+
+      owner = %Owner{
+        id: Ash.UUID.generate(),
+        name: "Owner",
+        hashed_password: "$2b$owner",
+        joined_at: ~U[2026-11-23 10:00:00.000000Z],
+        mentor_id: mentor.id,
+        mentor: mentor
+      }
+
+      %{owner: owner}
+    end
+
+    test "keep only the record's non-sensitive attributes", %{owner: owner} do
+      create_with_owner!(%{owner: owner})
+
+      [event] = Ash.read!(Event, domain: Domain)
+
+      assert event.data["owner"] == %{
+               "id" => owner.id,
+               "name" => "Owner",
+               "joined_at" => "2026-11-23T10:00:00.000000Z",
+               "mentor_id" => owner.mentor_id
+             }
+    end
+
+    test "drop sensitive attributes when the argument names the resource", %{owner: owner} do
+      create_with_owner!(%{typed_owner: owner})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["typed_owner"]["name"] == "Owner"
+      refute Map.has_key?(event.data["typed_owner"], "hashed_password")
+    end
+
+    test "drop sensitive attributes from every record in a list", %{owner: owner} do
+      create_with_owner!(%{owners: [owner, owner.mentor]})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert Enum.map(event.data["owners"], & &1["name"]) == ["Owner", "Mentor"]
+      refute Enum.any?(event.data["owners"], &Map.has_key?(&1, "hashed_password"))
+    end
+
+    test "drop sensitive attributes from records nested in a map", %{owner: owner} do
+      create_with_owner!(%{context: %{"by" => owner}})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["context"]["by"]["name"] == "Owner"
+      refute Map.has_key?(event.data["context"]["by"], "hashed_password")
+    end
+
+    test "drop sensitive attributes from records passed to a bulk create", %{owner: owner} do
+      Ash.bulk_create!(
+        [%{title: "A", owner: owner}, %{title: "B", owner: owner.mentor}],
+        Post,
+        :create_with_owner,
+        domain: Domain
+      )
+
+      owners = Event |> Ash.read!(domain: Domain) |> Enum.map(& &1.data["owner"])
+      assert owners |> Enum.map(& &1["name"]) |> Enum.sort() == ["Mentor", "Owner"]
+      refute Enum.any?(owners, &Map.has_key?(&1, "hashed_password"))
+    end
+
+    test "leave out attributes that were not loaded or are forbidden", %{owner: owner} do
+      owner = %{
+        owner
+        | joined_at: %Ash.NotLoaded{field: :joined_at, type: :attribute},
+          name: %Ash.ForbiddenField{field: :name, type: :attribute}
+      }
+
+      create_with_owner!(%{owner: owner})
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["owner"] == %{"id" => owner.id, "mentor_id" => owner.mentor_id}
+    end
+  end
+
+  describe "embedded attributes" do
+    test "keep only their non-sensitive attributes" do
+      Post
+      |> Ash.Changeset.for_create(
+        :create,
+        %{title: "Hello", settings: %{theme: "dark", api_key: "k-123"}},
+        domain: Domain
+      )
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["settings"] == %{"theme" => "dark"}
+    end
+  end
+
+  describe "other structs" do
+    test "become maps of their fields" do
+      Post
+      |> Ash.Changeset.for_create(
+        :create_with_schedule,
+        %{title: "Hello", context: %{"link" => URI.parse("https://example.com/a")}},
+        domain: Domain
+      )
+      |> Ash.create!()
+
+      [event] = Ash.read!(Event, domain: Domain)
+      assert event.data["context"]["link"]["host"] == "example.com"
+      assert event.data["context"]["link"]["path"] == "/a"
+    end
+  end
+
   describe "metadata" do
     test "stores metadata from changeset context" do
       Post
@@ -713,5 +902,13 @@ defmodule AshEventLogTest do
     test "accepts resources with single primary key" do
       assert :ok = AshEventLog.Resource.Verifiers.ValidateSinglePrimaryKey.verify(Post)
     end
+  end
+
+  defp create_with_owner!(arguments) do
+    Post
+    |> Ash.Changeset.for_create(:create_with_owner, Map.put(arguments, :title, "Hello"),
+      domain: Domain
+    )
+    |> Ash.create!()
   end
 end

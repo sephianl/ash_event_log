@@ -128,8 +128,14 @@ on policies to filter what gets written; use `ignore_actions` / `only_actions` i
 post-action values), and action arguments.
 
 - **Anything marked `sensitive?` is excluded** — attributes and arguments both.
-- Values are dumped with `Ash.Type.dump_to_embedded/3` and then made JSON-safe. Structs
-  become maps, tuples become lists, PIDs and references become strings.
+- **A record is stored as its non-sensitive attributes only**, wherever it appears: a
+  `:struct` argument (with or without `instance_of`), a list of records, a record nested in
+  a map, or an embedded attribute's value. Its relationships, calculations, aggregates,
+  metadata, and attributes that are not loaded or are forbidden never land in `data`.
+- Values are dumped with `Ash.Type.dump_to_embedded/3` and then made JSON-safe. Dates and
+  times (`DateTime`, `NaiveDateTime`, `Date`, `Time`) become ISO 8601 strings, other structs
+  become maps, tuples become lists, PIDs and references become strings. The same holds for
+  `metadata`.
 - `record_id` is always stored as a string.
 
 ### Attaching custom metadata

@@ -223,7 +223,13 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     attr_data |> Map.merge(atomic_data) |> Map.merge(arg_data) |> json_safe()
   end
 
-  defp dump_value(value, %{type: type, constraints: constraints}) do
+  # A record skips its type's dump: `:struct` with `instance_of` dumps every attribute,
+  # sensitive ones included. `json_safe/1` reduces it to its non-sensitive attributes.
+  defp dump_value(value, input) do
+    if holds_record?(value), do: value, else: dump_typed(value, input)
+  end
+
+  defp dump_typed(value, %{type: type, constraints: constraints}) do
     case Ash.Type.dump_to_embedded(type, value, constraints || []) do
       {:ok, dumped} -> dumped
       _ -> value
@@ -231,6 +237,23 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
   rescue
     _e in [ArgumentError, FunctionClauseError] -> value
   end
+
+  defp holds_record?(values) when is_list(values), do: Enum.any?(values, &holds_record?/1)
+  defp holds_record?(%module{}), do: Ash.Resource.Info.resource?(module)
+  defp holds_record?(_value), do: false
+
+  defp dump_record(%resource{} = record) do
+    resource
+    |> Ash.Resource.Info.attributes()
+    |> Enum.reject(& &1.sensitive?)
+    |> Enum.reduce(%{}, &put_attribute(&2, &1, Map.get(record, &1.name)))
+  end
+
+  defp put_attribute(acc, _attribute, %Ash.NotLoaded{}), do: acc
+  defp put_attribute(acc, _attribute, %Ash.ForbiddenField{}), do: acc
+
+  defp put_attribute(acc, attribute, value),
+    do: Map.put(acc, attribute.name, dump_value(value, attribute))
 
   defp json_safe(value) when is_binary(value) do
     if String.printable?(value) do
@@ -249,9 +272,19 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
 
   defp json_safe(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_safe()
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
-  defp json_safe(%_{} = value), do: json_safe(Map.from_struct(value))
+  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp json_safe(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp json_safe(%Date{} = value), do: Date.to_iso8601(value)
+  defp json_safe(%Time{} = value), do: Time.to_iso8601(value)
+
+  defp json_safe(%module{} = value),
+    do: json_safe_struct(value, Ash.Resource.Info.resource?(module))
+
   defp json_safe(value) when is_pid(value) or is_reference(value), do: inspect(value)
   defp json_safe(value), do: value
+
+  defp json_safe_struct(record, true), do: record |> dump_record() |> json_safe()
+  defp json_safe_struct(struct, false), do: struct |> Map.from_struct() |> json_safe()
 
   defp json_safe_key(key) when is_atom(key), do: key
   defp json_safe_key(key) when is_binary(key), do: key
