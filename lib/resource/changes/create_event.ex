@@ -13,7 +13,7 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
 
       Ash.Changeset.after_action(changeset, fn changeset, result ->
         params = build_event_params(changeset, result, event_log, context)
-        log_event(event_log, params)
+        log_event(event_log, params, context)
         {:ok, result}
       end)
     end
@@ -44,7 +44,7 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
       |> Enum.reject(fn {cs, _} -> skip?(cs.action.name, opts) end)
       |> Enum.map(fn {cs, result} -> build_event_params(cs, result, event_log, context) end)
 
-    if events != [], do: log_events_bulk(events, event_log)
+    if events != [], do: log_events_bulk(events, event_log, context)
 
     Enum.map(changesets_and_results, fn {_, result} -> {:ok, result} end)
   end
@@ -56,10 +56,10 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     end
   end
 
-  defp log_event(event_log, params) do
+  defp log_event(event_log, params, context) do
     run_async(fn ->
       try do
-        case create_event(event_log, params) do
+        case create_event(event_log, params, context) do
           {:ok, _} ->
             :ok
 
@@ -73,11 +73,12 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     end)
   end
 
-  defp log_events_bulk(events, event_log) do
+  defp log_events_bulk(events, event_log, context) do
     run_async(fn ->
       try do
         result =
           Ash.bulk_create(events, event_log, :create,
+            scope: context,
             authorize?: false,
             return_errors?: true
           )
@@ -105,9 +106,9 @@ defmodule AshEventLog.Resource.Changes.CreateEvent do
     end
   end
 
-  defp create_event(event_log, params) do
+  defp create_event(event_log, params, context) do
     event_log
-    |> Ash.Changeset.for_create(:create, params)
+    |> Ash.Changeset.for_create(:create, params, scope: context, authorize?: false)
     |> Ash.create(authorize?: false)
   end
 
